@@ -1,15 +1,15 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import threading
-import requests
 import os
-
-from bot import run_bot, running, balance, mode
+import requests
+import bot
 
 app = Flask(__name__)
 CORS(app)
 
 thread = None
+
 
 def get_ip():
     try:
@@ -17,48 +17,54 @@ def get_ip():
     except:
         return "Unavailable"
 
+
 @app.route("/")
 def home():
     return "Bot is running"
 
+
 @app.route("/start", methods=["POST"])
 def start():
     global thread
-    data = request.json
 
+    data = request.json
     capital = float(data.get("capital", 10))
     target = float(data.get("target", 1000))
+    mode = data.get("mode", "paper")
 
-    from bot import running
-    if not running:
-        import bot
+    if not bot.running:
         bot.running = True
-        thread = threading.Thread(target=run_bot, args=(capital, target))
+        thread = threading.Thread(target=bot.run_bot, args=(capital, target, mode))
         thread.start()
 
     return jsonify({"status": "started"})
 
+
 @app.route("/stop", methods=["POST"])
 def stop():
-    import bot
     bot.running = False
     return jsonify({"status": "stopped"})
 
+
 @app.route("/reset", methods=["POST"])
 def reset():
-    import bot
     bot.balance = 0
+    bot.trade_history.clear()
     return jsonify({"status": "reset"})
+
 
 @app.route("/status")
 def status():
-    import bot
     return jsonify({
         "running": bot.running,
-        "balance": bot.balance,
+        "balance": bot.get_balance() if bot.mode == "live" else bot.balance,
+        "connection": bot.check_connection(),
+        "trade": bot.current_trade,
+        "history": bot.trade_history,
         "mode": bot.mode,
         "ip": get_ip()
     })
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 3000))
