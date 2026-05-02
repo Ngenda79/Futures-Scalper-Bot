@@ -1,9 +1,9 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import threading
+import bot
 import os
 import requests
-import bot
 
 app = Flask(__name__)
 CORS(app)
@@ -34,23 +34,27 @@ def start():
 
     if not bot.running:
         bot.running = True
-        thread = threading.Thread(target=bot.run_bot, args=(capital, target, mode))
+        thread = threading.Thread(
+            target=bot.run_bot,
+            args=(capital, target, mode)
+        )
         thread.start()
 
-    return jsonify({"status": "started"})
+    return jsonify({"message": "started"})
 
 
 @app.route("/stop", methods=["POST"])
 def stop():
     bot.running = False
-    return jsonify({"status": "stopped"})
+    return jsonify({"message": "stopped"})
 
 
 @app.route("/reset", methods=["POST"])
 def reset():
     bot.balance = 0
     bot.trade_history.clear()
-    return jsonify({"status": "reset"})
+    bot.current_trade = None
+    return jsonify({"message": "reset"})
 
 
 @app.route("/status")
@@ -59,8 +63,8 @@ def status():
         "running": bot.running,
         "balance": bot.get_balance() if bot.mode == "live" else bot.balance,
         "connection": bot.check_connection(),
-        "trade": bot.current_trade,
-        "history": bot.trade_history,
+        "trade": bot.current_trade if bot.current_trade else {},
+        "history": bot.trade_history if bot.trade_history else [],
         "mode": bot.mode,
         "ip": get_ip()
     })
