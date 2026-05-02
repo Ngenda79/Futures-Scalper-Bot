@@ -15,7 +15,7 @@ LEVERAGE = 3
 
 balance = 0
 trade_history = []
-current_trade = None
+current_trade = {}
 
 
 def check_connection():
@@ -37,7 +37,10 @@ def get_balance():
 
 
 def get_price():
-    return float(client.futures_symbol_ticker(symbol=SYMBOL)["price"])
+    try:
+        return float(client.futures_symbol_ticker(symbol=SYMBOL)["price"])
+    except:
+        return 0
 
 
 def calculate_risk(balance):
@@ -67,14 +70,14 @@ def run_bot(start_capital, target, selected_mode):
             balance = get_balance()
 
         risk = calculate_risk(balance)
-        qty = (risk * LEVERAGE) / price
+        qty = (risk * LEVERAGE) / price if price > 0 else 0
 
         signal = "BUY" if int(time.time()) % 2 == 0 else "SELL"
 
         # OPEN TRADE
-        if current_trade is None:
+        if not current_trade:
 
-            if mode == "live":
+            if mode == "live" and qty > 0:
                 try:
                     place_trade(signal, qty)
                 except Exception as e:
@@ -89,16 +92,16 @@ def run_bot(start_capital, target, selected_mode):
                 "status": "OPEN"
             }
 
-        # CLOSE TRADE (simple movement)
+        # CLOSE TRADE
         else:
-            move = abs(price - current_trade["entry"]) / current_trade["entry"]
+            move = abs(price - current_trade["entry"]) / current_trade["entry"] if current_trade["entry"] else 0
 
             if move > 0.002:
                 current_trade["exit"] = price
                 current_trade["status"] = "CLOSED"
 
                 trade_history.append(current_trade)
-                current_trade = None
+                current_trade = {}
 
         time.sleep(5)
 
