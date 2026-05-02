@@ -10,6 +10,8 @@ CORS(app)
 
 thread = None
 
+PASSWORD = os.getenv("BOT_PASSWORD", "1234")
+
 
 def get_ip():
     try:
@@ -18,16 +20,15 @@ def get_ip():
         return "Unavailable"
 
 
-@app.route("/")
-def home():
-    return "Bot is running"
-
-
 @app.route("/start", methods=["POST"])
 def start():
     global thread
 
     data = request.json
+
+    if data.get("password") != PASSWORD:
+        return jsonify({"error": "Unauthorized"}), 403
+
     capital = float(data.get("capital", 10))
     target = float(data.get("target", 1000))
     mode = data.get("mode", "paper")
@@ -40,21 +41,21 @@ def start():
         )
         thread.start()
 
-    return jsonify({"message": "started"})
+    return jsonify({"status": "started"})
 
 
 @app.route("/stop", methods=["POST"])
 def stop():
     bot.running = False
-    return jsonify({"message": "stopped"})
+    return jsonify({"status": "stopped"})
 
 
 @app.route("/reset", methods=["POST"])
 def reset():
     bot.balance = 0
     bot.trade_history.clear()
-    bot.current_trade = None
-    return jsonify({"message": "reset"})
+    bot.current_trade = {}
+    return jsonify({"status": "reset"})
 
 
 @app.route("/status")
