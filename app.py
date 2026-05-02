@@ -1,91 +1,102 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask import Flask, jsonify
+from binance.client import Client
+import pandas as pd
+import time
 import threading
-import bot
 import os
-import requests
 
 app = Flask(__name__)
-CORS(app)
 
-thread = None
+API_KEY = os.getenv("BINANCE_API_KEY")
+API_SECRET = os.getenv("BINANCE_API_SECRET")
 
-PASSWORD = os.getenv("BOT_PASSWORD")
+client = Client(API_KEY, API_SECRET)
 
-# ------------------ IP ------------------
+SYMBOL = "BTCUSDT"
+QTY = 0.001
+INTERVAL = Client.KLINE_INTERVAL_5MINUTE
 
-def get_ip():
-    try:
-        return requests.get("https://api.ipify.org").text
-    except:
-        return "Unavailable"
+bot_status = False
 
-# ------------------ ROUTES ------------------
+# === INDICATORS ===
+def get_data():
+    klines = client.get_klines(symbol=SYMBOL, interval=INTERVAL, limit=100)
+    df = pd.DataFrame(klines, columns=[
+        "time","open","high","low","close","volume",
+        "ct","qv","n","tbbav","tbqav","ignore"
+    ])
+    df["close"] = df["close"].astype(float)
+    return df
 
-@app.route("/")
-def home():
-    return "Bot is running"
+def apply_strategy(df):
+    df["ema20"] = df["close"].ewm(span=20).mean()
+    df["ema50"] = df["close"].ewm(span=50).mean()
 
+    delta = df["close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / loss
+    df["rsi"] = 100 - (100 / (1 + rs))
+
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    buy = (
+        last["ema20"] > last["ema50"] and
+        40 < last["rsi"] < 60 and
+        last["close"] > prev["high"]
+    )
+
+    sell = (
+        last["ema20"] < last["ema50"] and
+        40 < last["rsi"] < 60 and
+        last["close"] < prev["low"]
+    )
+
+    return "BUY" if buy else "SELL" if sell else None
+
+# === TRADING LOOP ===
+def trading_loop():
+    global bot_status
+
+    while True:
+        if bot_status:
+            try:
+                df = get_data()
+                signal = apply_strategy(df)
+
+                if signal == "BUY":
+                    client.order_market_buy(symbol=SYMBOL, quantity=QTY)
+                    print("BUY executed")
+
+                elif signal == "SELL":
+                    client.order_market_sell(symbol=SYMBOL, quantity=QTY)
+                    print("SELL executed")
+
+            except Exception as e:
+                print("Error:", e)
+
+        time.sleep(60)
+
+# === CONTROL ROUTES ===
 @app.route("/start", methods=["POST"])
 def start():
-    global thread
-
-    data = request.json or {}
-
-    if data.get("password") != PASSWORD:
-        return jsonify({"error": "Unauthorized"}), 403
-
-    capital = float(data.get("capital", 10))
-    target = float(data.get("target", 1000))
-    mode = data.get("mode", "paper")
-
-    if not bot.running:
-        bot.running = True
-        thread = threading.Thread(
-            target=bot.run_bot,
-            args=(capital, target, mode)
-        )
-        thread.start()
-
-    return jsonify({"status": "started"})
+    global bot_status
+    bot_status = True
+    return {"status": "Bot started"}
 
 @app.route("/stop", methods=["POST"])
 def stop():
-    bot.running = False
-    return jsonify({"status": "stopped"})
-
-@app.route("/reset", methods=["POST"])
-def reset():
-    bot.balance = 0.0
-    bot.trade_history = []
-    bot.current_trade = {}
-    return jsonify({"status": "reset"})
+    global bot_status
+    bot_status = False
+    return {"status": "Bot stopped"}
 
 @app.route("/status")
 def status():
+    return {"bot": bot_status}
 
-    try:
-        balance = bot.get_balance() if bot.mode == "live" else bot.balance
-    except:
-        balance = 0.0
-
-    try:
-        connection = bot.check_connection()
-    except:
-        connection = "Error"
-
-    return jsonify({
-        "running": bool(bot.running),
-        "balance": float(balance),
-        "connection": connection,
-        "trade": bot.current_trade if isinstance(bot.current_trade, dict) else {},
-        "history": bot.trade_history if isinstance(bot.trade_history, list) else [],
-        "mode": bot.mode if bot.mode else "paper",
-        "ip": get_ip()
-    })
-
-# ------------------ RUN ------------------
+# === START THREAD ===
+threading.Thread(target=trading_loop).start()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 3000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000)
