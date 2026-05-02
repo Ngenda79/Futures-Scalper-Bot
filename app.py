@@ -9,8 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 thread = None
-
-PASSWORD = os.getenv("BOT_PASSWORD", "1234")
+PASSWORD = os.getenv("BOT_PASSWORD")
 
 
 def get_ip():
@@ -27,7 +26,7 @@ def start():
     data = request.json
 
     if data.get("password") != PASSWORD:
-        return jsonify({"error": "Unauthorized"}), 403
+        return jsonify({"error": "Wrong password"}), 403
 
     capital = float(data.get("capital", 10))
     target = float(data.get("target", 1000))
@@ -53,7 +52,7 @@ def stop():
 @app.route("/reset", methods=["POST"])
 def reset():
     bot.balance = 0
-    bot.trade_history.clear()
+    bot.trade_history = []
     bot.current_trade = {}
     return jsonify({"status": "reset"})
 
@@ -62,7 +61,7 @@ def reset():
 def status():
     return jsonify({
         "running": bot.running,
-        "balance": bot.get_balance() if bot.mode == "live" else bot.balance,
+        "balance": float(bot.balance),
         "connection": bot.check_connection(),
         "trade": bot.current_trade if bot.current_trade else {},
         "history": bot.trade_history if bot.trade_history else [],
